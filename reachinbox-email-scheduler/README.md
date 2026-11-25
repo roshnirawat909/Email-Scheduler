@@ -83,13 +83,15 @@ The login flow uses the `openid`, `email`, and `profile` scopes. OAuth credentia
 Use separate services for the API and optional email worker. In the Render environment settings, set at least:
 
 - `NODE_ENV=production`
-- `FRONTEND_URL=https://your-frontend.example`
+- `FRONTEND_URL=https://email-scheduler-frontend-r6v1.onrender.com` (set this on the **backend API service** to the frontend's origin, with no trailing slash)
 - `DATABASE_URL=your managed PostgreSQL connection string`
 - `REDIS_URL=redis://...` or `rediss://...` from a managed Redis service
 - `SESSION_SECRET` to a 32-byte or longer random value
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and the deployed `GOOGLE_CALLBACK_URL`
 - `SLACK_CALLBACK_URL` if Slack OAuth is enabled
 - `TOKEN_ENCRYPTION_KEY` to a 32-byte hex value
+
+After updating the backend's `FRONTEND_URL`, manually redeploy the backend API service. Its CORS response must allow the exact origin `https://email-scheduler-frontend-r6v1.onrender.com`; do not use `*`, because the API uses credentialed sessions.
 
 The backend build command is `npm install && npm run build`, the start command is `npm start`, and the working directory is `backend`. The worker needs its own Render background worker service with `npm start` changed to `npm run start:worker`. Worker startup also requires the queue, SMTP, outbox, and rate-limit variables listed in `backend/.env.example`.
 
