@@ -1,0 +1,234 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum WorkspaceRole {
+  ADMIN
+  MEMBER
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  COMPLETED
+  PAUSED
+  CANCELED
+}
+
+enum EmailDeliveryStatus {
+  SCHEDULED
+  PROCESSING
+  SENT
+  FAILED
+  UNKNOWN
+}
+
+enum CampaignAttachmentCategory {
+  DOCUMENTS
+  IMAGES
+  VIDEOS
+  PRESENTATIONS
+  SPREADSHEETS
+  PROGRAMMING
+  DATA
+  COMPRESSED
+}
+
+enum OutboxEventStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum OutboxEventType {
+  ENQUEUE_EMAIL
+  INDEX_EMAIL
+  SLACK_LIMIT_NOTIFICATION
+}
+
+model User {
+  id               String            @id @default(cuid())
+  googleSubject    String            @unique
+  email            String
+  name             String
+  avatarUrl        String?
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(3)
+  memberships      WorkspaceMember[]
+  createdCampaigns Campaign[]        @relation("CampaignCreator")
+  slackConnections SlackConnection[] @relation("SlackConnector")
+}
+
+model Workspace {
+  id          String              @id @default(cuid())
+  name        String
+  slug        String              @unique
+  createdAt   DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @db.Timestamptz(3)
+  members     WorkspaceMember[]
+  senders     SenderAccount[]
+  campaigns   Campaign[]
+  slack       SlackConnection?
+  idempotency IdempotencyRecord[]
+}
+
+model WorkspaceMember {
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(MEMBER)
+  createdAt   DateTime      @default(now()) @db.Timestamptz(3)
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+  @@index([userId])
+}
+
+model SenderAccount {
+  id                       String     @id @default(cuid())
+  workspaceId              String
+  name                     String
+  email                    String
+  provider                 String     @default("ETHEREAL")
+  smtpHost                 String?
+  smtpPort                 Int?
+  smtpCredentialsEncrypted String?
+  hourlyLimit              Int?
+  minDelayMs               Int?
+  enabled                  Boolean    @default(true)
+  createdAt                DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime   @updatedAt @db.Timestamptz(3)
+  workspace                Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaigns                Campaign[]
+
+  @@unique([workspaceId, email])
+  @@index([workspaceId, enabled])
+}
+
+model Campaign {
+  id               String          @id @default(cuid())
+  workspaceId      String
+  createdById      String
+  senderId         String
+  subject          String
+  body             String          @db.Text
+  scheduledStartAt DateTime        @db.Timestamptz(3)
+  minDelayMs       Int
+  maxPerHour       Int
+  status           CampaignStatus  @default(DRAFT)
+  createdAt        DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime        @updatedAt @db.Timestamptz(3)
+  workspace        Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy        User            @relation("CampaignCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  sender           SenderAccount   @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  deliveries       EmailDelivery[]
+  attachments      CampaignAttachment[]
+
+  @@index([workspaceId, status, scheduledStartAt])
+  @@index([senderId, status])
+}
+
+model CampaignAttachment {
+  id          String                     @id @default(cuid())
+  campaignId  String
+  category    CampaignAttachmentCategory
+  filename    String
+  contentType String
+  size        Int
+  data        Bytes
+  createdAt   DateTime                   @default(now()) @db.Timestamptz(3)
+  campaign    Campaign                   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+}
+
+model EmailDelivery {
+  id                  String              @id @default(cuid())
+  campaignId          String
+  recipientEmail      String
+  normalizedRecipient String
+  recipientData       Json?
+  status              EmailDeliveryStatus @default(SCHEDULED)
+  scheduledAt         DateTime            @db.Timestamptz(3)
+  sentAt              DateTime?           @db.Timestamptz(3)
+  queueJobId          String?             @unique
+  attemptCount        Int                 @default(0)
+  lastError           String?             @db.Text
+  createdAt           DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime            @updatedAt @db.Timestamptz(3)
+  campaign            Campaign            @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  attempts            DeliveryAttempt[]
+
+  @@unique([campaignId, normalizedRecipient])
+  @@index([status, scheduledAt])
+  @@index([recipientEmail])
+  @@index([campaignId, status])
+}
+
+model DeliveryAttempt {
+  id            String        @id @default(cuid())
+  deliveryId    String
+  attemptNumber Int
+  startedAt     DateTime      @default(now()) @db.Timestamptz(3)
+  completedAt   DateTime?     @db.Timestamptz(3)
+  outcome       String
+  smtpMessageId String?
+  error         String?       @db.Text
+  delivery      EmailDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@unique([deliveryId, attemptNumber])
+  @@index([deliveryId, startedAt])
+}
+
+model SlackConnection {
+  id                    String    @id @default(cuid())
+  workspaceId           String    @unique
+  connectedById         String
+  teamId                String
+  teamName              String
+  botTokenEncrypted     String
+  notificationChannelId String?
+  connectedAt           DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
+  workspace             Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connectedBy           User      @relation("SlackConnector", fields: [connectedById], references: [id], onDelete: Restrict)
+}
+
+model IdempotencyRecord {
+  id          String    @id @default(cuid())
+  workspaceId String
+  key         String
+  requestHash String
+  response    Json?
+  expiresAt   DateTime  @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
+  @@index([expiresAt])
+}
+
+model OutboxEvent {
+  id          String            @id @default(cuid())
+  eventKey    String            @unique
+  type        OutboxEventType
+  aggregateId String
+  payload     Json
+  status      OutboxEventStatus @default(PENDING)
+  attempts    Int               @default(0)
+  availableAt DateTime          @default(now()) @db.Timestamptz(3)
+  processedAt DateTime?         @db.Timestamptz(3)
+  lastError   String?           @db.Text
+  createdAt   DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime          @updatedAt @db.Timestamptz(3)
+
+  @@index([status, availableAt])
+  @@index([aggregateId, type])
+}
