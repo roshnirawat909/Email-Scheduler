@@ -78,6 +78,28 @@ The API root (`http://localhost:4000/`) returns service information. The livenes
 
 The login flow uses the `openid`, `email`, and `profile` scopes. OAuth credentials are not included in the repository. The frontend shows sign-in as unavailable until the client ID and secret are configured.
 
+## Render deployment
+
+Use separate services for the API and optional email worker. In the Render environment settings, set at least:
+
+- `NODE_ENV=production`
+- `FRONTEND_URL=https://your-frontend.example`
+- `DATABASE_URL=your managed PostgreSQL connection string`
+- `REDIS_URL=redis://...` or `rediss://...` from a managed Redis service
+- `SESSION_SECRET` to a 32-byte or longer random value
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and the deployed `GOOGLE_CALLBACK_URL`
+- `SLACK_CALLBACK_URL` if Slack OAuth is enabled
+- `TOKEN_ENCRYPTION_KEY` to a 32-byte hex value
+
+The backend build command is `npm install && npm run build`, the start command is `npm start`, and the working directory is `backend`. The worker needs its own Render background worker service with `npm start` changed to `npm run start:worker`. Worker startup also requires the queue, SMTP, outbox, and rate-limit variables listed in `backend/.env.example`.
+
+Do not configure `DATABASE_URL` or `REDIS_URL` as `localhost` on Render. The API and worker cannot reach services on the local machine of the Render host. Create managed PostgreSQL and Redis services and use their private or external connection URLs. After changing environment variables, manually redeploy the service and verify:
+
+- `https://your-backend.example/api/health/live`
+- `https://your-backend.example/api/health/ready`
+
+The readiness endpoint must report `database: ok` and `redis: ok`. Configure CORS and OAuth callback URLs using the deployed HTTPS frontend/backend URLs, not the local Vite or localhost URLs.
+
 ## Campaign and sender APIs
 
 These endpoints require a signed-in Google session and use the session's workspace for data isolation:

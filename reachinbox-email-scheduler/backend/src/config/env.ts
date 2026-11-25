@@ -46,4 +46,40 @@ const envSchema = z.object({
     .default(10_000),
 })
 
-export const env = envSchema.parse(process.env)
+const parsedEnv = envSchema.safeParse(process.env)
+
+if (!parsedEnv.success) {
+  const missingOrInvalid = [
+    ...new Set(parsedEnv.error.issues.map((issue) => issue.path.join('.'))),
+  ]
+  throw new Error(
+    `Missing or invalid environment configuration: ${missingOrInvalid.join(', ')}`,
+  )
+}
+
+if (parsedEnv.data.NODE_ENV === 'production') {
+  for (const [name, value] of [
+    ['FRONTEND_URL', parsedEnv.data.FRONTEND_URL],
+    ['DATABASE_URL', parsedEnv.data.DATABASE_URL],
+    ['REDIS_URL', parsedEnv.data.REDIS_URL],
+    ['GOOGLE_CALLBACK_URL', parsedEnv.data.GOOGLE_CALLBACK_URL],
+  ] as const) {
+    const url = new URL(value)
+    if (['localhost', '127.0.0.1', '::1'].includes(url.hostname)) {
+      throw new Error(
+        `${name} must not use a local host in production; set a deployed URL or managed service connection string`,
+      )
+    }
+  }
+
+  if (
+    parsedEnv.data.GOOGLE_CLIENT_ID &&
+    parsedEnv.data.GOOGLE_CALLBACK_URL.includes('localhost')
+  ) {
+    throw new Error(
+      'GOOGLE_CALLBACK_URL must use the deployed backend URL in production',
+    )
+  }
+}
+
+export const env = parsedEnv.data
