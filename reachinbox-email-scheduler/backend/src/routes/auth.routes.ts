@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { Request } from 'express'
 import { Router } from 'express'
 import { OAuth2Client } from 'google-auth-library'
+import { Prisma } from '../generated/prisma/client.js'
 import { env } from '../config/env.js'
 import { logger } from '../config/logger.js'
 import { prisma } from '../config/prisma.js'
@@ -166,6 +167,9 @@ authRouter.get('/google/callback', async (request, response) => {
     logger.error(
       {
         errorName: error instanceof Error ? error.name : 'UnknownError',
+        ...(error instanceof Prisma.PrismaClientKnownRequestError
+          ? { prismaCode: error.code }
+          : {}),
       },
       'Google OAuth callback failed',
     )
